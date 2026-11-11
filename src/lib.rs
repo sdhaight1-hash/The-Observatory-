@@ -12,6 +12,8 @@ pub struct Evidence {
     pub source_id: i64,
     pub locator: String,
     pub stance: String,
+    pub source_version: i64,
+    pub source_reference: String,
 }
 
 impl Observatory {
@@ -48,6 +50,8 @@ impl Observatory {
                id INTEGER PRIMARY KEY,
                claim_id INTEGER NOT NULL REFERENCES claims(id),
                source_id INTEGER NOT NULL REFERENCES sources(id),
+               source_version INTEGER NOT NULL DEFAULT 1,
+               source_reference TEXT NOT NULL DEFAULT '',
                locator TEXT NOT NULL CHECK(length(trim(locator)) > 0),
                stance TEXT NOT NULL CHECK(stance IN ('supports','contradicts','context')),
                note TEXT NOT NULL DEFAULT ''
@@ -64,6 +68,22 @@ impl Observatory {
              CREATE INDEX IF NOT EXISTS evidence_source ON evidence(source_id);
              CREATE INDEX IF NOT EXISTS evidence_claim ON evidence(claim_id);"
         )?;
+        // Upgrade databases created on the initial development branch.
+        let mut stmt = db.prepare("PRAGMA table_info(evidence)")?;
+        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?
+            .collect::<Result<Vec<_>>>()?;
+        drop(stmt);
+        if !columns.iter().any(|c| c == "source_version") {
+            db.execute_batch("ALTER TABLE evidence ADD COLUMN source_version INTEGER NOT NULL DEFAULT 1;")?;
+        }
+        if !columns.iter().any(|c| c == "source_reference") {
+            db.execute_batch("ALTER TABLE evidence ADD COLUMN source_reference TEXT NOT NULL DEFAULT '';")?;
+            // Historical references cannot be reconstructed from legacy records.
+            db.execute_batch(
+                "UPDATE evidence SET source_reference =
+                    (SELECT reference FROM sources WHERE sources.id=evidence.source_id);"
+            )?;
+        }
         Ok(Self { db })
     }
 
@@ -91,12 +111,11 @@ impl Observatory {
     pub fn link(&self, claim_id: i64, source_id: i64, locator: &str, stance: &str, note: &str) -> Result<i64> {
         // Claims and sources must belong to the same investigation.
         let added = self.db.execute(
-            "INSERT INTO evidence(claim_id,source_id,locator,stance,note)
-             SELECT ?1,?2,?3,?4,?5 WHERE EXISTS (
-               SELECT 1 FROM claims c JOIN sources s
-               ON s.investigation_id = c.investigation_id
-               WHERE c.id=?1 AND s.id=?2
-             )",
+            "INSERT INTO evidence(claim_id,source_id,source_version,source_reference,locator,stance,note)
+             SELECT ?1,s.id,s.version,s.reference,?3,?4,?5
+             FROM claims c JOIN sources s
+             ON s.investigation_id = c.investigation_id
+             WHERE c.id=?1 AND s.id=?2",
             params![claim_id, source_id, locator, stance, note],
         )?;
         if added == 0 {
@@ -107,7 +126,7 @@ impl Observatory {
 
     pub fn evidence_for(&self, claim_id: i64) -> Result<Vec<Evidence>> {
         let mut stmt = self.db.prepare(
-            "SELECT claim_id,source_id,locator,stance FROM evidence
+            "SELECT claim_id,source_id,locator,stance,source_version,source_reference FROM evidence
              WHERE claim_id=?1 ORDER BY id"
         )?;
         let rows = stmt.query_map([claim_id], |row| Ok(Evidence {
@@ -115,6 +134,8 @@ impl Observatory {
             source_id: row.get(1)?,
             locator: row.get(2)?,
             stance: row.get(3)?,
+            source_version: row.get(4)?,
+            source_reference: row.get(5)?,
         }))?;
         let collected = rows.collect();
         collected
@@ -167,7 +188,7 @@ impl Observatory {
             let (id, kind, statement) = claim?;
             report.push_str(&format!("## {}: {}\n\n", kind, statement));
             let mut evidence_stmt = self.db.prepare(
-                "SELECT e.stance,s.title,s.reference,e.locator,e.note,s.version
+                "SELECT e.stance,s.title,e.source_reference,e.locator,e.note,e.source_version
                  FROM evidence e JOIN sources s ON e.source_id=s.id
                  WHERE e.claim_id=?1 ORDER BY e.id"
             )?;
@@ -242,6 +263,16 @@ mod tests {
         o.revise_source(s, "local:v2")?;
         assert_eq!(o.dependent_claims(s)?, vec![a, b]);
         assert_eq!(o.revision_count(s)?, 1);
+        let old = o.evidence_for(a)?;
+        assert_eq!(old[0].source_version, 1);
+        assert_eq!(old[0].source_reference, "local:v1");
+        o.link(a, s, "line 3", "context", "")?;
+        let new = o.evidence_for(a)?;
+        assert_eq!(new[1].source_version, 2);
+        assert_eq!(new[1].source_reference, "local:v2");
+        let report = o.report_markdown(i)?;
+        assert!(report.contains("local:v1"));
+        assert!(report.contains("local:v2"));
         Ok(())
     }
 
