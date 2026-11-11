@@ -17,6 +17,17 @@ The Observatory is a research workbench for making claims, evidence, assumptions
 7. **AI is advisory.** Automated extraction and analysis must be attributable and reviewable.
 8. **Earn complexity.** Add infrastructure only when a tested use case requires it.
 
+## Product vision and living design documents
+
+The Observatory combines four user workflows: **Discover** (capture and monitor), **Explore** (notes, mind maps and knowledge graphs), **Investigate** (claims, evidence, OSINT methods), and **Reflect** (research history and changes in understanding).
+
+Its seven conceptual services are the **Archive, Atlas, Laboratory, Chronicle, Watchtower, Vault, and Lens**. The future **Codex** is an evidence-linked encyclopedia-style view, not an additional truth database. Bookmarking, RSS, archive retrieval, visual knowledge maps, machine-readable APIs and optional AI are planned in dependency order, **not currently implemented**.
+
+- [Product vision — purpose, workflows, inspirations, Codex](docs/VISION.md)
+- [Architecture — objects, provenance, API and security boundaries](docs/ARCHITECTURE.md)
+- [Roadmap — current reality, phases and acceptance criteria](docs/ROADMAP.md)
+- [Decision log — committed, provisional, deferred and rejected ideas](docs/DECISIONS.md)
+
 ## First milestone: Evidence Engine 001
 
 Build a minimal, persistent investigation core capable of:
@@ -59,7 +70,7 @@ These are initial decisions, not a commitment to unnecessary infrastructure. The
 
 ## Project status
 
-**Foundation / specification phase.** No functioning evidence engine is claimed yet.
+**Early development.** The working Rust/SQLite prototype is on [draft PR #2](https://github.com/sdhaight1-hash/The-Observatory-/pull/2), not yet merged to `main`. Automated tests on that branch have passed, including the 20-claim acceptance fixture; significant provenance and migration work remains before the foundation is considered complete. See [ROADMAP.md](docs/ROADMAP.md) for exact status and gaps.
 
 ---
 
