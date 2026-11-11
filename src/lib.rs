@@ -110,19 +110,23 @@ impl Observatory {
             "SELECT claim_id,source_id,locator,stance FROM evidence
              WHERE claim_id=?1 ORDER BY id"
         )?;
-        stmt.query_map([claim_id], |row| Ok(Evidence {
+        let rows = stmt.query_map([claim_id], |row| Ok(Evidence {
             claim_id: row.get(0)?,
             source_id: row.get(1)?,
             locator: row.get(2)?,
             stance: row.get(3)?,
-        }))?.collect()
+        }))?;
+        let collected = rows.collect();
+        collected
     }
 
     pub fn dependent_claims(&self, source_id: i64) -> Result<Vec<i64>> {
         let mut stmt = self.db.prepare(
             "SELECT DISTINCT claim_id FROM evidence WHERE source_id=?1 ORDER BY claim_id"
         )?;
-        stmt.query_map([source_id], |row| row.get(0))?.collect()
+        let rows = stmt.query_map([source_id], |row| row.get(0))?;
+        let collected = rows.collect();
+        collected
     }
 
     /// Revisions preserve previous references and their dependencies.
