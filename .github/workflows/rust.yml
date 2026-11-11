@@ -25,3 +25,12 @@ jobs:
           grep -q "local:one" report.md
           ! grep -q "local:two" report.md
           test "$(cargo run --quiet -- "$DB" deps 1)" = "1"
+          BACKUP="$(mktemp -u)"
+          cargo run --quiet -- "$DB" backup "$BACKUP"
+          test -f "$BACKUP"
+          cargo run --quiet -- "$BACKUP" report 1 > recovered.md
+          grep -q "local:one" recovered.md
+          if cargo run --quiet -- "$DB" backup "$BACKUP"; then
+            echo "Backup overwrote existing destination" >&2
+            exit 1
+          fi
