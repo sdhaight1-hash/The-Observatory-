@@ -12,6 +12,22 @@
 - **Known open gaps:** user-supplied citation locators are not verified; deletions and full append-only auditing remain incomplete; schema-migration governance and source-content snapshots are not complete.
 - Issue #1 remains the foundational milestone: https://github.com/sdhaight1-hash/The-Observatory-/issues/1
 
+## GitHub work-item index
+
+The issues below are ordered by dependency and grouped by milestone. An issue being open does **not** imply implementation has begun.
+
+| Milestone | Issues | Scope |
+| --- | --- | --- |
+| Foundation | [#1](https://github.com/sdhaight1-hash/The-Observatory-/issues/1), [#3](https://github.com/sdhaight1-hash/The-Observatory-/issues/3), [#4](https://github.com/sdhaight1-hash/The-Observatory-/issues/4), [#5](https://github.com/sdhaight1-hash/The-Observatory-/issues/5) | Evidence graph, migrations, verified citations, audit/deletion |
+| Desktop | [#6](https://github.com/sdhaight1-hash/The-Observatory-/issues/6) | Local library, notes, bookmarks, collections |
+| Explore | [#7](https://github.com/sdhaight1-hash/The-Observatory-/issues/7) | Spatial canvas and semantic relationships |
+| Watchtower + Vault | [#8](https://github.com/sdhaight1-hash/The-Observatory-/issues/8), [#9](https://github.com/sdhaight1-hash/The-Observatory-/issues/9) | Feeds, snapshots, archival comparison |
+| Investigation | [#10](https://github.com/sdhaight1-hash/The-Observatory-/issues/10) | Public-interest OSINT and source lineage |
+| Machine access | [#11](https://github.com/sdhaight1-hash/The-Observatory-/issues/11) | Typed API and authorized MCP adapter |
+| Knowledge synthesis | [#12](https://github.com/sdhaight1-hash/The-Observatory-/issues/12), [#13](https://github.com/sdhaight1-hash/The-Observatory-/issues/13) | Codex and optional AI |
+
+**Current next engineering issue:** #3. Finish the versioned SQLite migration and backup safety gate before broadening the product surface. The issue sequence is a dependency plan, not a promise to implement everything simultaneously.
+
 ## Milestone 1 — Trusted evidence core (in progress)
 
 **Build:** Rust + SQLite, typed investigation records, source-version-pinned evidence, basic offline CLI/report, migrations, independent test fixture.
