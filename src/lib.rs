@@ -200,7 +200,7 @@ impl Observatory {
             for line in lines {
                 let (stance,title,reference,locator,note,version) = line?;
                 report.push_str(&format!(
-                    "- **{}** — {} ({}; current version {}) at {}. {}\n",
+                    "- **{}** — {} ({}; captured version {}) at {}. {}\n",
                     stance,title,reference,version,locator,note
                 ));
             }
