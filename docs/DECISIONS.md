@@ -1,6 +1,6 @@
 # Design Decision Log
 
-This file preserves the project's design reasoning across conversations. **Committed** means an agreed architectural/product direction, not implemented code. **Provisional** choices need experimentation. **Deferred** features remain candidates, not obligations.
+This file preserves the project's design reasoning across conversations. All decisions should be evaluated against [FIRST_PRINCIPLES.md](FIRST_PRINCIPLES.md); exceptions need explicit rationale. **Committed** means an agreed architectural/product direction, not implemented code. **Provisional** choices need experimentation. **Deferred** features remain candidates, not obligations.
 
 | ID | Status | Decision | Rationale / boundary |
 | --- | --- | --- | --- |
