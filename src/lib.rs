@@ -149,6 +149,45 @@ impl Observatory {
         tx.commit()
     }
 
+
+    /// Generate a human-readable report. Source locators are unverified assertions.
+    pub fn report_markdown(&self, investigation_id: i64) -> Result<String> {
+        let question: String = self.db.query_row(
+            "SELECT question FROM investigations WHERE id=?1",
+            [investigation_id], |row| row.get(0)
+        )?;
+        let mut report = format!("# Investigation: {}\n\n", question);
+        let mut stmt = self.db.prepare(
+            "SELECT id,kind,statement FROM claims WHERE investigation_id=?1 ORDER BY id"
+        )?;
+        let claims = stmt.query_map([investigation_id], |row| Ok((
+            row.get::<_, i64>(0)?, row.get::<_, String>(1)?, row.get::<_, String>(2)?
+        )))?;
+        for claim in claims {
+            let (id, kind, statement) = claim?;
+            report.push_str(&format!("## {}: {}\n\n", kind, statement));
+            let mut evidence_stmt = self.db.prepare(
+                "SELECT e.stance,s.title,s.reference,e.locator,e.note,s.version
+                 FROM evidence e JOIN sources s ON e.source_id=s.id
+                 WHERE e.claim_id=?1 ORDER BY e.id"
+            )?;
+            let lines = evidence_stmt.query_map([id], |row| Ok((
+                row.get::<_, String>(0)?,row.get::<_, String>(1)?,
+                row.get::<_, String>(2)?,row.get::<_, String>(3)?,
+                row.get::<_, String>(4)?,row.get::<_, i64>(5)?
+            )))?;
+            for line in lines {
+                let (stance,title,reference,locator,note,version) = line?;
+                report.push_str(&format!(
+                    "- **{}** — {} ({}; current version {}) at {}. {}\n",
+                    stance,title,reference,version,locator,note
+                ));
+            }
+            report.push('\n');
+        }
+        Ok(report)
+    }
+
     pub fn revision_count(&self, source_id: i64) -> Result<i64> {
         self.db.query_row(
             "SELECT count(*) FROM revisions WHERE source_id=?1",
@@ -221,6 +260,10 @@ mod tests {
         let reopened = Observatory::open(&path)?;
         assert_eq!(reopened.evidence_for(claim)?.len(), 1);
         assert_eq!(reopened.dependent_claims(source)?, vec![claim]);
+        let report = reopened.report_markdown(1)?;
+        assert!(report.contains("A possibility"));
+        assert!(report.contains("file:///notebook"));
+        assert!(report.contains("context"));
         Ok(())
     }
 }
