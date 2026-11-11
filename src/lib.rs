@@ -237,6 +237,38 @@ mod tests {
     }
 
     #[test]
+    fn failed_upgrade_rolls_back_schema_changes() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("broken-legacy.sqlite");
+        {
+            let db = Connection::open(&path)?;
+            // All required table names exist, but evidence lacks a source_id
+            // column, so index creation will fail mid-migration.
+            db.execute_batch(
+                "CREATE TABLE investigations (id INTEGER PRIMARY KEY);
+                 CREATE TABLE claims (id INTEGER PRIMARY KEY);
+                 CREATE TABLE sources (id INTEGER PRIMARY KEY);
+                 CREATE TABLE evidence (id INTEGER PRIMARY KEY, locator TEXT);"
+            )?;
+        }
+        assert!(Observatory::open(&path).is_err());
+        let db = Connection::open(&path)?;
+        let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        assert_eq!(version, 0);
+        let revisions: i64 = db.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='revisions'",
+            [], |r| r.get(0)
+        )?;
+        assert_eq!(revisions, 0);
+        let evidence_columns: i64 = db.query_row(
+            "SELECT count(*) FROM pragma_table_info('evidence') WHERE name='source_version'",
+            [], |r| r.get(0)
+        )?;
+        assert_eq!(evidence_columns, 0);
+        Ok(())
+    }
+
+    #[test]
     fn backup_roundtrip_preserves_evidence_and_refuses_overwrite() -> Result<()> {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("primary.sqlite");
