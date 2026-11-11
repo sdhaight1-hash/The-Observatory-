@@ -23,6 +23,7 @@ The Observatory combines four user workflows: **Discover** (capture and monitor)
 
 Its seven conceptual services are the **Archive, Atlas, Laboratory, Chronicle, Watchtower, Vault, and Lens**. The future **Codex** is an evidence-linked encyclopedia-style view, not an additional truth database. Bookmarking, RSS, archive retrieval, visual knowledge maps, machine-readable APIs and optional AI are planned in dependency order, **not currently implemented**.
 
+- [First principles — design philosophy and decision tests](docs/FIRST_PRINCIPLES.md)
 - [Product vision — purpose, workflows, inspirations, Codex](docs/VISION.md)
 - [Architecture — objects, provenance, API and security boundaries](docs/ARCHITECTURE.md)
 - [Roadmap — current reality, phases and acceptance criteria](docs/ROADMAP.md)
