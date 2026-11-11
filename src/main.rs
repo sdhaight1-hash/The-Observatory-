@@ -50,6 +50,10 @@ fn run() -> Result<(), Box<dyn Error>> {
                 println!("{claim}");
             }
         }
+        [command, destination] if command == "backup" => {
+            store.backup_to(destination)?;
+            println!("Created backup: {destination}");
+        }
         [command, investigation] if command == "report" => {
             print!("{}", store.report_markdown(id(investigation)?)?);
         }
