@@ -333,6 +333,44 @@ mod tests {
     }
 
     #[test]
+    fn twenty_claim_investigation_exports_and_survives_reopen() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("investigation.sqlite");
+        let first_source;
+        {
+            let mut o = Observatory::open(&path)?;
+            let investigation = o.investigation("Which explanation best fits the records?")?;
+            let sources = [
+                o.source(investigation, "Archive A", "local:a")?,
+                o.source(investigation, "Archive B", "local:b")?,
+                o.source(investigation, "Archive C", "local:c")?,
+            ];
+            first_source = sources[0];
+            for n in 0..20 {
+                let kind = if n < 2 { "hypothesis" } else { "claim" };
+                let claim = o.claim(investigation, &format!("Assertion {n}"), kind)?;
+                let source = sources[(n % 3) as usize];
+                let stance = if n % 2 == 0 { "supports" } else { "contradicts" };
+                o.link(claim, source, &format!("record {n}"), stance, "sample fixture")?;
+            }
+            o.revise_source(first_source, "local:a-revised")?;
+            assert_eq!(o.revision_count(first_source)?, 1);
+        }
+        let reopened = Observatory::open(&path)?;
+        let report = reopened.report_markdown(1)?;
+        assert_eq!(report.matches("## ").count(), 20);
+        assert!(report.contains("hypothesis: Assertion 0"));
+        assert!(report.contains("claim: Assertion 19"));
+        assert!(report.contains("local:a"));
+        assert!(report.contains("local:b"));
+        assert!(report.contains("local:c"));
+        assert!(report.contains("**contradicts**"));
+        assert!(report.contains("**supports**"));
+        assert_eq!(reopened.dependent_claims(first_source)?.len(), 7);
+        Ok(())
+    }
+
+    #[test]
     fn persists_across_reopen() -> Result<()> {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("observatory.sqlite");
