@@ -10,3 +10,18 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - name: Test
         run: cargo test
+      - name: Offline CLI smoke test
+        shell: bash
+        run: |
+          set -euo pipefail
+          DB="$(mktemp)"
+          cargo run --quiet -- "$DB" new "Does this claim hold?"
+          cargo run --quiet -- "$DB" claim 1 hypothesis "A possible explanation"
+          cargo run --quiet -- "$DB" source 1 "Notebook" "local:one"
+          cargo run --quiet -- "$DB" link 1 1 "line 3" supports
+          cargo run --quiet -- "$DB" revise 1 "local:two"
+          cargo run --quiet -- "$DB" report 1 > report.md
+          grep -q "A possible explanation" report.md
+          grep -q "local:one" report.md
+          ! grep -q "local:two" report.md
+          test "$(cargo run --quiet -- "$DB" deps 1)" = "1"
