@@ -1,5 +1,6 @@
 //! Small, auditable evidence graph. AI and networking are intentionally absent.
 use rusqlite::{params, Connection, Result};
+mod migrations;
 use std::path::Path;
 
 pub struct Observatory {
@@ -26,67 +27,20 @@ impl Observatory {
         Self::init(Connection::open_in_memory()?)
     }
 
-    fn init(db: Connection) -> Result<Self> {
-        db.execute_batch(
-            "PRAGMA foreign_keys = ON;
-             CREATE TABLE IF NOT EXISTS investigations (
-               id INTEGER PRIMARY KEY,
-               question TEXT NOT NULL CHECK(length(trim(question)) > 0)
-             );
-             CREATE TABLE IF NOT EXISTS claims (
-               id INTEGER PRIMARY KEY,
-               investigation_id INTEGER NOT NULL REFERENCES investigations(id),
-               statement TEXT NOT NULL CHECK(length(trim(statement)) > 0),
-               kind TEXT NOT NULL CHECK(kind IN ('claim','hypothesis'))
-             );
-             CREATE TABLE IF NOT EXISTS sources (
-               id INTEGER PRIMARY KEY,
-               investigation_id INTEGER NOT NULL REFERENCES investigations(id),
-               title TEXT NOT NULL CHECK(length(trim(title)) > 0),
-               reference TEXT NOT NULL CHECK(length(trim(reference)) > 0),
-               version INTEGER NOT NULL DEFAULT 1
-             );
-             CREATE TABLE IF NOT EXISTS evidence (
-               id INTEGER PRIMARY KEY,
-               claim_id INTEGER NOT NULL REFERENCES claims(id),
-               source_id INTEGER NOT NULL REFERENCES sources(id),
-               source_version INTEGER NOT NULL DEFAULT 1,
-               source_reference TEXT NOT NULL DEFAULT '',
-               locator TEXT NOT NULL CHECK(length(trim(locator)) > 0),
-               stance TEXT NOT NULL CHECK(stance IN ('supports','contradicts','context')),
-               note TEXT NOT NULL DEFAULT ''
-             );
-             CREATE TABLE IF NOT EXISTS revisions (
-               id INTEGER PRIMARY KEY,
-               source_id INTEGER NOT NULL REFERENCES sources(id),
-               old_reference TEXT NOT NULL,
-               new_reference TEXT NOT NULL,
-               old_version INTEGER NOT NULL,
-               new_version INTEGER NOT NULL,
-               changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-             );
-             CREATE INDEX IF NOT EXISTS evidence_source ON evidence(source_id);
-             CREATE INDEX IF NOT EXISTS evidence_claim ON evidence(claim_id);"
-        )?;
-        // Upgrade databases created on the initial development branch.
-        let mut stmt = db.prepare("PRAGMA table_info(evidence)")?;
-        let columns = stmt.query_map([], |row| row.get::<_, String>(1))?
-            .collect::<Result<Vec<_>>>()?;
-        drop(stmt);
-        if !columns.iter().any(|c| c == "source_version") {
-            db.execute_batch("ALTER TABLE evidence ADD COLUMN source_version INTEGER NOT NULL DEFAULT 1;")?;
-        }
-        if !columns.iter().any(|c| c == "source_reference") {
-            db.execute_batch("ALTER TABLE evidence ADD COLUMN source_reference TEXT NOT NULL DEFAULT '';")?;
-            // Legacy citations were never pinned to a particular source version.
-            // Do not invent a historical reference from the current source address.
-            db.execute_batch(
-                "UPDATE evidence
-                 SET source_reference='UNVERIFIED LEGACY CITATION: original reference unknown',
-                     source_version=0;"
-            )?;
-        }
+    fn init(mut db: Connection) -> Result<Self> {
+        migrations::migrate(&mut db)?;
         Ok(Self { db })
+    }
+
+    /// Create a consistent SQLite snapshot, including committed WAL data.
+    /// VACUUM INTO requires a destination file that does not already exist.
+    pub fn backup_to(&self, destination: impl AsRef<Path>) -> Result<()> {
+        let path = destination.as_ref();
+        if path.exists() {
+            return Err(rusqlite::Error::InvalidPath(path.to_path_buf()));
+        }
+        self.db.execute("VACUUM INTO ?1", [path.to_string_lossy().as_ref()])?;
+        Ok(())
     }
 
     pub fn investigation(&self, question: &str) -> Result<i64> {
@@ -222,6 +176,87 @@ impl Observatory {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn schema_version_is_idempotent() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("versioned.sqlite");
+        {
+            let o = Observatory::open(&path)?;
+            let i = o.investigation("Stable")?;
+            let c = o.claim(i, "Preserved", "claim")?;
+            let src = o.source(i, "Note", "local:v1")?;
+            o.link(c, src, "line 1", "supports", "")?;
+        }
+        for _ in 0..2 {
+            let o = Observatory::open(&path)?;
+            assert_eq!(o.evidence_for(1)?.len(), 1);
+            assert_eq!(o.db.pragma_query_value(None, "user_version", |r| r.get::<_, i64>(0))?, 1);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn future_schema_is_rejected_without_mutation() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("future.sqlite");
+        {
+            let db = Connection::open(&path)?;
+            db.execute_batch("PRAGMA user_version=99; CREATE TABLE future_data (value TEXT);")?;
+        }
+        assert!(Observatory::open(&path).is_err());
+        let db = Connection::open(&path)?;
+        let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        assert_eq!(version, 99);
+        let name: String = db.query_row(
+            "SELECT name FROM sqlite_master WHERE name='future_data'",
+            [], |r| r.get(0)
+        )?;
+        assert_eq!(name, "future_data");
+        Ok(())
+    }
+
+    #[test]
+    fn partial_legacy_schema_is_rejected_without_mutation() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("partial.sqlite");
+        {
+            let db = Connection::open(&path)?;
+            db.execute_batch("CREATE TABLE investigations (id INTEGER PRIMARY KEY);")?;
+        }
+        assert!(Observatory::open(&path).is_err());
+        let db = Connection::open(&path)?;
+        let version: i64 = db.pragma_query_value(None, "user_version", |r| r.get(0))?;
+        assert_eq!(version, 0);
+        let count: i64 = db.query_row(
+            "SELECT count(*) FROM sqlite_master WHERE type='table' AND name='claims'",
+            [], |r| r.get(0)
+        )?;
+        assert_eq!(count, 0);
+        Ok(())
+    }
+
+    #[test]
+    fn backup_roundtrip_preserves_evidence_and_refuses_overwrite() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("primary.sqlite");
+        let copy = dir.path().join("backup.sqlite");
+        {
+            let mut o = Observatory::open(&path)?;
+            let i = o.investigation("Backed up question")?;
+            let c = o.claim(i, "Backed up claim", "claim")?;
+            let src = o.source(i, "Notes", "local:v1")?;
+            o.link(c, src, "p.3", "supports", "Backed up evidence")?;
+            o.revise_source(src, "local:v2")?;
+            o.backup_to(&copy)?;
+            assert!(o.backup_to(&copy).is_err());
+        }
+        let recovered = Observatory::open(&copy)?;
+        assert_eq!(recovered.evidence_for(1)?[0].source_reference, "local:v1");
+        assert_eq!(recovered.revision_count(1)?, 1);
+        assert!(recovered.report_markdown(1)?.contains("Backed up evidence"));
+        Ok(())
+    }
 
     #[test]
     fn records_support_and_contradiction_separately() -> Result<()> {
