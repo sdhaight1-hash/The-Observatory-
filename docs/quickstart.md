@@ -39,7 +39,9 @@ This is a development prototype, not a finished investigation product.
 - No graphical interface, bookmarks, RSS feeds, HTTP API, or MCP server yet.
 - No imported document bytes or independently validated source passage offsets.
 - Legacy databases from the earliest experimental branch are upgraded
-  on open, but their historical citation references cannot be reconstructed.
+  on open. Old evidence is explicitly marked `UNVERIFIED LEGACY CITATION`
+  (source version 0): its historical reference cannot be reconstructed and
+  must not be represented as the current source address.
 - Deletion semantics, source immutability, and audit-log completeness still need formal validation.
 - Reports are Markdown drafts, not reviewed research findings.
 
