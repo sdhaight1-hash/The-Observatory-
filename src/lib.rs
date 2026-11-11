@@ -78,10 +78,12 @@ impl Observatory {
         }
         if !columns.iter().any(|c| c == "source_reference") {
             db.execute_batch("ALTER TABLE evidence ADD COLUMN source_reference TEXT NOT NULL DEFAULT '';")?;
-            // Historical references cannot be reconstructed from legacy records.
+            // Legacy citations were never pinned to a particular source version.
+            // Do not invent a historical reference from the current source address.
             db.execute_batch(
-                "UPDATE evidence SET source_reference =
-                    (SELECT reference FROM sources WHERE sources.id=evidence.source_id);"
+                "UPDATE evidence
+                 SET source_reference='UNVERIFIED LEGACY CITATION: original reference unknown',
+                     source_version=0;"
             )?;
         }
         Ok(Self { db })
@@ -273,6 +275,60 @@ mod tests {
         let report = o.report_markdown(i)?;
         assert!(report.contains("local:v1"));
         assert!(report.contains("local:v2"));
+        Ok(())
+    }
+
+    #[test]
+    fn rejects_empty_source_revisions_without_changing_history() -> Result<()> {
+        let mut o = Observatory::memory()?;
+        let i = o.investigation("Q")?;
+        let s = o.source(i, "Notebook", "local:original")?;
+        assert!(o.revise_source(s, "  ").is_err());
+        assert_eq!(o.revision_count(s)?, 0);
+        let c = o.claim(i, "Recorded fact", "claim")?;
+        o.link(c, s, "line 1", "context", "")?;
+        assert_eq!(o.evidence_for(c)?[0].source_reference, "local:original");
+        assert_eq!(o.evidence_for(c)?[0].source_version, 1);
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_migration_does_not_invent_historical_citation() -> Result<()> {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("legacy.sqlite");
+        {
+            let db = Connection::open(&path)?;
+            db.execute_batch(
+                "CREATE TABLE investigations (id INTEGER PRIMARY KEY, question TEXT NOT NULL);
+                 CREATE TABLE claims (
+                   id INTEGER PRIMARY KEY, investigation_id INTEGER NOT NULL,
+                   statement TEXT NOT NULL, kind TEXT NOT NULL
+                 );
+                 CREATE TABLE sources (
+                   id INTEGER PRIMARY KEY, investigation_id INTEGER NOT NULL,
+                   title TEXT NOT NULL, reference TEXT NOT NULL, version INTEGER NOT NULL DEFAULT 1
+                 );
+                 CREATE TABLE evidence (
+                   id INTEGER PRIMARY KEY, claim_id INTEGER NOT NULL,
+                   source_id INTEGER NOT NULL, locator TEXT NOT NULL,
+                   stance TEXT NOT NULL, note TEXT NOT NULL DEFAULT ''
+                 );
+                 INSERT INTO investigations VALUES (1,'Legacy question');
+                 INSERT INTO claims VALUES (1,1,'Old claim','claim');
+                 INSERT INTO sources VALUES (1,1,'Changed page','local:current',2);
+                 INSERT INTO evidence VALUES (1,1,1,'paragraph 4','supports','');"
+            )?;
+        }
+        let migrated = Observatory::open(&path)?;
+        let records = migrated.evidence_for(1)?;
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].source_version, 0);
+        assert!(records[0].source_reference.contains("UNVERIFIED LEGACY"));
+        assert!(!migrated.report_markdown(1)?.contains("(local:current; captured version"));
+        drop(migrated);
+        // Reopening must not rewrite the migration marker.
+        let reopened = Observatory::open(&path)?;
+        assert_eq!(reopened.evidence_for(1)?[0].source_version, 0);
         Ok(())
     }
 
